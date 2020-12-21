@@ -47,15 +47,16 @@ public class SimpleBufferedRandomAccessInputStream extends InputStream
 
     public final byte[] readDirect(long position, int length) throws IOException
     {
+        ByteBuffer buffer = ByteBuffer.allocate(length);
         int totalRead = 0;
         while (totalRead < length)
         {
-            int read += raf.getChannel().read(buffer, position);
+            int read =+ raf.getChannel().read(buffer, position);
             if (read < 0)
             {
                 throw new IOException("incomplete read while performing read on buffer");
             }
-            totalRead += read;
+            totalRead =+ read;
         }
         return buffer.array();
     }

@@ -531,10 +531,28 @@ public abstract class IndexWriter
 
     public static class IntIndexCollector extends IntIndex<ArrayIntCompressed> implements IOne2OneIndex
     {
+        static class IndexedThreadLocalCache<T>
+        {
+            final ThreadLocal<Integer> pageNumber = ThreadLocal.withInitial(() -> -1);
+            final ThreadLocal<SoftReference<T>> page = ThreadLocal.withInitial(() -> null);
+
+            void set(int pageNumber, T page)
+            {
+                this.pageNumber.set(pageNumber);
+                this.page.set(new SoftReference(page));
+            }
+
+            T get(int pageNumber)
+            {
+                return (this.pageNumber.get() == pageNumber) ? this.page.get().get() : null;
+            }
+        }
+
         final int mostSignificantBit;
         final int size;
         final int pageSize = IndexWriter.PAGE_SIZE_INT;
         final ConcurrentHashMap<Integer, ArrayIntCompressed> pages = new ConcurrentHashMap<Integer, ArrayIntCompressed>();
+        final IndexedThreadLocalCache<ArrayIntCompressed> localPageCache = new IndexedThreadLocalCache<>();
 
         public IntIndexCollector(int size, int mostSignificantBit)
         {
@@ -544,13 +562,23 @@ public abstract class IndexWriter
 
         protected ArrayIntCompressed getPage(int page)
         {
-            ArrayIntCompressed existing = pages.get(page);
-            if (existing != null) return existing;
+            ArrayIntCompressed existing = localPageCache.get(page);
+            if (existing != null)
+                return existing;
+
+            existing = pages.get(page);
+            if (existing != null)
+            {
+                localPageCache.set(page, existing);
+                return existing;
+            }
 
             int ps = page < (size / pageSize) ? pageSize : size % pageSize;
             ArrayIntCompressed newArray = new ArrayIntCompressed(ps, 31 - mostSignificantBit, 0);
             existing = pages.putIfAbsent(page, newArray);
-            return (existing != null) ? existing : newArray;
+            final ArrayIntCompressed result = (existing != null) ? existing : newArray;
+            localPageCache.set(page, result);
+            return result;
         }
 
         public IIndexReader.IOne2OneIndex writeTo(File indexFile) throws IOException
