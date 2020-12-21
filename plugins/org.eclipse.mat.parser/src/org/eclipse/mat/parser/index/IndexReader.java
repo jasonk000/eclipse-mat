@@ -169,41 +169,42 @@ public abstract class IndexReader
         protected ArrayIntCompressed getPage(int page)
         {
             SoftReference<ArrayIntCompressed> ref = pages.get(page);
-            ArrayIntCompressed array = ref == null ? null : ref.get();
-            if (array == null)
+            if (ref != null && ref.get() != null)
             {
-                synchronized (LOCK)
-                {
-                    ref = pages.get(page);
-                    array = ref == null ? null : ref.get();
-
-                    if (array == null)
-                    {
-                        try
-                        {
-                            byte[] buffer = null;
-
-                            this.in.seek(pageStart[page]);
-
-                            buffer = new byte[(int) (pageStart[page + 1] - pageStart[page])];
-                            if (this.in.read(buffer) != buffer.length)
-                                throw new IOException();
-
-                            array = new ArrayIntCompressed(buffer);
-
-                            synchronized (pages)
-                            {
-                                pages.put(page, new SoftReference<ArrayIntCompressed>(array));
-                            }
-                        }
-                        catch (IOException e)
-                        {
-                            throw new RuntimeException(e);
-                        }
-                    }
-                }
+                return ref.get();
             }
-            return array;
+
+            // no read is ready with a complete read; do a read
+            long ltoRead = pageStart[page + 1] - pageStart[page];
+            if (ltoRead >= Integer.MAX_VALUE)
+            {
+                throw new RuntimeException(new IOException("want to read too many bytes"));
+            }
+            int toRead = (int) ltoRead;
+            byte[] buffer;
+            try
+            {
+                buffer = this.in.readDirect(pageStart[page], toRead);
+            }
+            catch (IOException e)
+            {
+                throw new RuntimeException(e);
+            }
+
+            synchronized(pages)
+            {
+                // if another thread finished a concurrent read, use it
+                ref = pages.get(page);
+                if (ref != null && ref.get() != null)
+                {
+                    return ref.get();
+                }
+
+                // if this thread is first, it can store
+                ArrayIntCompressed array = new ArrayIntCompressed(buffer);
+                pages.put(page, new SoftReference<>(array));
+                return array;
+            }
         }
 
         public void delete()
