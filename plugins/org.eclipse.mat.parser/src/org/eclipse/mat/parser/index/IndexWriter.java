@@ -602,13 +602,9 @@ public abstract class IndexWriter
 
         public int get(int index)
         {
+            // writes should not happen concurrently with get, else values might not be read atomically
             ArrayIntCompressed array = getPage(index / pageSize);
-
-            // TODO unlock this by having ArrayIntCompressed use atomics
-            // we currently lock a whole page, when we only need a single element
-            synchronized(array) {
-                return array.get(index % pageSize);
-            }
+            return array.get(index % pageSize);
         }
 
         public void close() throws IOException
